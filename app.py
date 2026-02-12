@@ -14,7 +14,7 @@ LANGUAGE_FLAGS = {
     "vi": "🇻🇳",
     "ja": "🇯🇵",
     "th": "🇹🇭",
-    "zh": "🇨🇳"
+    "zh": "🇨🇳",
     "gb": "GB",
 }
 
@@ -42,9 +42,9 @@ markup.add(
     btn_vi,
     btn_ja,
     btn_th,
-    btn_zh
+    btn_zh,
 )
-DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th", "zh"]
+DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th", "gb", "zh"]
 
 # ---------- Helpers to load/save JSON ----------
 def load_json_file(path, default):
