@@ -13,14 +13,14 @@ CHAT_CONFIG_FILE = "chat_config.json"    # key: str(chat_id) -> { "from_map": {.
 
 # ---------- Language flags and defaults ----------
 LANGUAGE_FLAGS = {
-    "en": "\U0001f1ec\U0001f1e7", # Cờ Anh
-    "ru": "\U0001f1f7\U0001f1fa", # Cờ Nga
-    "ar": "\U0001f1f8\U0001f1e6", # Cờ Ả Rập
-    "vi": "\U0001f1fb\U0001f1f3", # Cờ Việt Nam
-    "th": "\U0001f1f9\U0001f1ed",  # 🇹🇭 Cờ Thái
-    "ja": "\U0001f1ef\U0001f1f5",  # 🇯🇵 Cờ Nhật
+    "en": "\U0001f1ec\U0001f1e7",  # 🇬🇧 English
+    "ru": "\U0001f1f7\U0001f1fa",  # 🇷🇺 Russian
+    "ar": "\U0001f1f8\U0001f1e6",  # 🇸🇦 Arabic
+    "vi": "\U0001f1fb\U0001f1f3",  # 🇻🇳 Vietnamese
+    "ja": "\U0001f1ef\U0001f1f5",  # 🇯🇵 Japanese
+    "th": "\U0001f1f9\U0001f1ed",  # 🇹🇭 Thai
 }
-DEFAULT_LANGS = ["en", "ru", "ar"]
+DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th"]
 
 # ---------- Helpers to load/save JSON ----------
 def load_json_file(path, default):
