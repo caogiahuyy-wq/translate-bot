@@ -1,0 +1,7 @@
+flask
+requests
+google-cloud-secret-manager
+psycopg2-binary
+fpdf
+pillow
+gunicorn
