@@ -12,15 +12,26 @@ DATA_STORE_FILE = "message_store.json"   # key: "chat_id:bot_msg_id" -> "sender|
 CHAT_CONFIG_FILE = "chat_config.json"    # key: str(chat_id) -> { "from_map": {...}, "custom_langs": [...], "compact_mode": "on"/"off", "topic_permissions": [...] }
 
 # ---------- Language flags and defaults ----------
-LANGUAGE_FLAGS = {
-    "en": "\U0001f1ec\U0001f1e7",  # 🇬🇧 English
-    "ru": "\U0001f1f7\U0001f1fa",  # 🇷🇺 Russian
-    "ar": "\U0001f1f8\U0001f1e6",  # 🇸🇦 Arabic
-    "vi": "\U0001f1fb\U0001f1f3",  # 🇻🇳 Vietnamese
-    "ja": "\U0001f1ef\U0001f1f5",  # 🇯🇵 Japanese
-    "th": "\U0001f1f9\U0001f1ed",  # 🇹🇭 Thai
-}
-DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th"]
+markup = types.InlineKeyboardMarkup(row_width=8)
+
+btn_en = types.InlineKeyboardButton("🇺🇸", callback_data="lang_en")
+btn_ru = types.InlineKeyboardButton("🇷🇺", callback_data="lang_ru")
+btn_ar = types.InlineKeyboardButton("🇸🇦", callback_data="lang_ar")
+btn_vi = types.InlineKeyboardButton("🇻🇳", callback_data="lang_vi")
+btn_ja = types.InlineKeyboardButton("🇯🇵", callback_data="lang_ja")
+btn_th = types.InlineKeyboardButton("🇹🇭", callback_data="lang_th")
+btn_zh = types.InlineKeyboardButton("🇨🇳", callback_data="lang_zh")
+
+markup.add(
+    btn_en,
+    btn_ru,
+    btn_ar,
+    btn_vi,
+    btn_ja,
+    btn_th,
+    btn_zh
+)
+DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th", "zh"]
 
 # ---------- Helpers to load/save JSON ----------
 def load_json_file(path, default):
@@ -274,7 +285,7 @@ def handle_message(message):
 
         # sender display
         user = message.from_user
-        sender_display = f"@{user.username}" if getattr(user, "username", None) else (user.full_name if getattr(user, "full_name", None) else (user.first_name or "User"))
+        sender_display = f"🥰@{user.username}" if getattr(user, "username", None) else (user.full_name if getattr(user, "full_name", None) else (user.first_name or "User"))
 
         # extract text
         if message.content_type == "photo":
