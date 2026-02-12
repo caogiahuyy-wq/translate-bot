@@ -7,6 +7,16 @@ from flask import Flask, request
 import telebot
 from telebot import types
 
+LANGUAGE_FLAGS = {
+    "en": "🇺🇸",
+    "ru": "🇷🇺",
+    "ar": "🇸🇦",
+    "vi": "🇻🇳",
+    "ja": "🇯🇵",
+    "th": "🇹🇭",
+    "zh": "🇨🇳"
+}
+
 # ---------- Persistent storage files ----------
 DATA_STORE_FILE = "message_store.json"   # key: "chat_id:bot_msg_id" -> "sender|original|source_lang"
 CHAT_CONFIG_FILE = "chat_config.json"    # key: str(chat_id) -> { "from_map": {...}, "custom_langs": [...], "compact_mode": "on"/"off", "topic_permissions": [...] }
