@@ -22,7 +22,7 @@ DATA_STORE_FILE = "message_store.json"   # key: "chat_id:bot_msg_id" -> "sender|
 CHAT_CONFIG_FILE = "chat_config.json"    # key: str(chat_id) -> { "from_map": {...}, "custom_langs": [...], "compact_mode": "on"/"off", "topic_permissions": [...] }
 
 # ---------- Language flags and defaults ----------
-markup = types.InlineKeyboardMarkup(row_width=7)
+markup = types.InlineKeyboardMarkup()
 
 btn_en = types.InlineKeyboardButton("🇺🇸", callback_data="lang_en")
 btn_ru = types.InlineKeyboardButton("🇷🇺", callback_data="lang_ru")
@@ -32,7 +32,7 @@ btn_ja = types.InlineKeyboardButton("🇯🇵", callback_data="lang_ja")
 btn_th = types.InlineKeyboardButton("🇹🇭", callback_data="lang_th")
 btn_zh = types.InlineKeyboardButton("🇨🇳", callback_data="lang_zh")
 
-markup.add(
+markup.row(
     btn_en,
     btn_ru,
     btn_ar,
