@@ -15,6 +15,7 @@ LANGUAGE_FLAGS = {
     "ja": "🇯🇵",
     "th": "🇹🇭",
     "zh": "🇨🇳"
+    "en_gb": "GB",
 }
 
 # ---------- Persistent storage files ----------
@@ -30,10 +31,12 @@ btn_ar = types.InlineKeyboardButton("🇸🇦", callback_data="lang_ar")
 btn_vi = types.InlineKeyboardButton("🇻🇳", callback_data="lang_vi")
 btn_ja = types.InlineKeyboardButton("🇯🇵", callback_data="lang_ja")
 btn_th = types.InlineKeyboardButton("🇹🇭", callback_data="lang_th")
+btn_en_gb = types.InlineKeyboardButton("GB", callback_data="lang_en_gb")
 btn_zh = types.InlineKeyboardButton("🇨🇳", callback_data="lang_zh")
 
 markup.add(
     btn_en,
+    btn_en_gb,
     btn_ru,
     btn_ar,
     btn_vi,
