@@ -1,11 +1,6 @@
-FROM python:3.11-slim
-
+FROM python:3.10
 WORKDIR /app
-COPY . /app
-
-RUN pip install --upgrade pip
+COPY . .
 RUN pip install -r requirements.txt
+CMD ["python", "app.py"]
 
-ENV PORT=8080
-
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "app:app", "--workers", "2", "--threads", "2"]
