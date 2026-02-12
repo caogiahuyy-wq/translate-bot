@@ -22,15 +22,19 @@ DATA_STORE_FILE = "message_store.json"   # key: "chat_id:bot_msg_id" -> "sender|
 CHAT_CONFIG_FILE = "chat_config.json"    # key: str(chat_id) -> { "from_map": {...}, "custom_langs": [...], "compact_mode": "on"/"off", "topic_permissions": [...] }
 
 # ---------- Language flags and defaults ----------
-markup = types.InlineKeyboardMarkup(row_width=7)
+markup = types.InlineKeyboardMarkup()
+
+buttons = []
+
 for code, country in LANGUAGE_FLAGS.items():
-    markup.insert(
+    buttons.append(
         types.InlineKeyboardButton(
             country,
             callback_data=f"lang_{code}"
         )
     )
 
+markup.row(*buttons)
 DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th", "zh"]
 
 # ---------- Helpers to load/save JSON ----------
