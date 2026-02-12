@@ -1,496 +1,443 @@
-# app.py — Full Telegram bot with Unicode-safe PDF (default ch12.pdf)
+# app.py - Complete for your translation bot with per-user From mappings and admin controls
 import os
 import json
 import requests
-import threading
-import tempfile
 import traceback
-from io import BytesIO
-from flask import Flask, request, jsonify
-from google.cloud import secretmanager
-import psycopg2
-from psycopg2 import extras
-from fpdf import FPDF
-from PIL import Image
+from flask import Flask, request
+import telebot
+from telebot import types
 
+# ---------- Persistent storage files ----------
+DATA_STORE_FILE = "message_store.json"   # key: "chat_id:bot_msg_id" -> "sender|original|source_lang"
+CHAT_CONFIG_FILE = "chat_config.json"    # key: str(chat_id) -> { "from_map": {...}, "custom_langs": [...], "compact_mode": "on"/"off", "topic_permissions": [...] }
+
+# ---------- Language flags and defaults ----------
+LANGUAGE_FLAGS = {
+    "en": "\U0001f1ec\U0001f1e7", # Cờ Anh
+    "ru": "\U0001f1f7\U0001f1fa", # Cờ Nga
+    "ar": "\U0001f1f8\U0001f1e6", # Cờ Ả Rập
+    "vi": "\U0001f1fb\U0001f1f3", # Cờ Việt Nam
+    "th": "\U0001f1f9\U0001f1ed",  # 🇹🇭 Cờ Thái
+    "ja": "\U0001f1ef\U0001f1f5",  # 🇯🇵 Cờ Nhật
+}
+DEFAULT_LANGS = ["en", "ru", "ar"]
+
+# ---------- Helpers to load/save JSON ----------
+def load_json_file(path, default):
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Cannot read {path}: {e}")
+    return default
+
+def save_json_file(path, data):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Cannot write {path}: {e}")
+
+# ---------- Persistent stores (loaded on start) ----------
+MESSAGE_DATA = load_json_file(DATA_STORE_FILE, {})   # persistent mapping for callbacks
+CHAT_CONFIG = load_json_file(CHAT_CONFIG_FILE, {})    # persistent chat configs
+
+def save_message_data():
+    save_json_file(DATA_STORE_FILE, MESSAGE_DATA)
+
+def save_chat_config():
+    save_json_file(CHAT_CONFIG_FILE, CHAT_CONFIG)
+
+def get_chat_cfg(chat_id):
+    return CHAT_CONFIG.get(str(chat_id), {"from_map": {}, "custom_langs": list(DEFAULT_LANGS), "compact_mode": "on", "topic_permissions": []})
+
+def set_chat_cfg(chat_id, cfg):
+    CHAT_CONFIG[str(chat_id)] = cfg
+    save_chat_config()
+
+# ---------- Bot init ----------
+TOKEN = os.environ.get("TELEGRAM_TOKEN")
+if not TOKEN:
+    raise RuntimeError("Please set TELEGRAM_TOKEN environment variable")
+bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}" if BOT_TOKEN else None
-
-PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
-CLOUD_SQL_CONNECTION_NAME = os.environ.get("CLOUD_SQL_CONNECTION_NAME", "")
-DB_USER = os.environ.get("DB_USER", "bot-user")
-DB_NAME = os.environ.get("DB_NAME", "telegram_users")
-
-ADMIN_USER_ID = os.environ.get("ADMIN_USER_ID", None)
-
-PDF_CONVERSATION_STATE = {}
-
-# TOPIC_MAP (example entries)
-TOPIC_MAP = {
-    ("-1003048051082", 394): {"target_group": "-1003167105880", "target_topic": 2},
-    ("-1002975670789", 227): {"target_group": "-1003167105880", "target_topic": 2},
-}
-
-# AUTO_REPLY
-AUTO_REPLY = {
-    "hey huycon": " 👋  Xin chào! Tôi là Mr.HuyCon.",
-    "huy con": "đây đây đây  🐧 ",
-    "cảm ơn": "tuyệt  😎 ",
-    "làm gì": "tôi đang chờ bạn ...",
-    "mệt quá": "thả lỏng người, hít thật sâu... 3... 2... 1...",
-    "đm": "không được nói bậy, biết chưa",
-    "yes": "tuyệt  🚀 ",
-    "ok": " 👌  Chuẩn!",
-}
-
-def _api_post(method: str, data=None, files=None, timeout=15):
-    if not API_URL:
-        print("⚠️ API_URL (BOT_TOKEN) chưa được cấu hình.")
-        return None
+# ---------- Translate helper ----------
+def translate_text_with_source(text, target_lang):
+    """Return (translated_text, detected_source_lang). Uses google translate public endpoint (demo)."""
     try:
-        url = f"{API_URL}/{method}"
-        r = requests.post(url, data=data, files=files, timeout=timeout)
-        if r.status_code != 200:
-            print(f"Telegram API {method} trả về {r.status_code}: {r.text}")
-        return r
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q={requests.utils.quote(text)}"
+        r = requests.get(url, timeout=8)
+        r.raise_for_status()
+        data = r.json()
+        translated = data[0][0][0] if data and data[0] and data[0][0] else ""
+        source_lang = data[2] if len(data) > 2 else "und"
+        return translated, source_lang
     except Exception as e:
-        print(f"Exception khi gọi Telegram API {method}: {e}")
-        return None
+        print("Translate error:", e)
+        return f"[Lỗi dịch: {e}]", "und"
 
-def send_message(chat_id, text, message_thread_id=None, parse_mode=None):
-    payload = {"chat_id": chat_id, "text": text}
-    if message_thread_id is not None:
-        payload["message_thread_id"] = message_thread_id
-    if parse_mode:
-        payload["parse_mode"] = parse_mode
-    return _api_post("sendMessage", data=payload)
+# ---------- Create inline keyboard ----------
+def create_markup(chat_id):
+    cfg = get_chat_cfg(chat_id)
+    langs = cfg.get("custom_langs", list(DEFAULT_LANGS))
+    markup = types.InlineKeyboardMarkup()
+    buttons = []
+    for l in langs:
+        flag = LANGUAGE_FLAGS.get(l.lower(), "❓")
+        buttons.append(types.InlineKeyboardButton(f"{flag}", callback_data=l.lower()))
+    markup.add(*buttons)
+    return markup
 
-def send_document(chat_id, document_bytes_or_fileid, filename=None, caption=None, message_thread_id=None):
-    if isinstance(document_bytes_or_fileid, (bytes, bytearray, BytesIO)):
-        files = {"document": (filename or "file.pdf", document_bytes_or_fileid, "application/pdf")}
-        data = {"chat_id": chat_id}
-        if message_thread_id: data["message_thread_id"] = message_thread_id
-        if caption: data["caption"] = caption
-        return _api_post("sendDocument", data=data, files=files)
-    else:
-        payload = {"chat_id": chat_id, "document": document_bytes_or_fileid}
-        if message_thread_id: payload["message_thread_id"] = message_thread_id
-        if caption: payload["caption"] = caption
-        return _api_post("sendDocument", data=payload)
+# ---------- Admin commands: per-username From mapping ----------
+@bot.message_handler(commands=['ch12from_on', 'ch12from_off', 'ch12from_list'])
+def ch12from_commands(message):
+    """
+    /ch12from_on <username> <label>  -> set mapping for username (no @)
+    /ch12from_off <username>         -> remove mapping
+    /ch12from_list                   -> list mappings
+    Only group admins can set/unset. Listing allowed for all.
+    """
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    text = message.text or ""
+    parts = text.strip().split(maxsplit=2)
+    cmd = parts[0].lstrip('/').lower()
 
-def send_photo(chat_id, photo_bytes_or_fileid, caption=None, message_thread_id=None):
-    if isinstance(photo_bytes_or_fileid, (bytes, bytearray, BytesIO)):
-        files = {"photo": ("photo.jpg", photo_bytes_or_fileid, "image/jpeg")}
-        data = {"chat_id": chat_id}
-        if message_thread_id: data["message_thread_id"] = message_thread_id
-        if caption: data["caption"] = caption
-        return _api_post("sendPhoto", data=data, files=files)
-    else:
-        payload = {"chat_id": chat_id, "photo": photo_bytes_or_fileid}
-        if message_thread_id: payload["message_thread_id"] = message_thread_id
-        if caption: payload["caption"] = caption
-        return _api_post("sendPhoto", data=payload)
-
-def send_video(chat_id, video_bytes_or_fileid, caption=None, message_thread_id=None):
-    if isinstance(video_bytes_or_fileid, (bytes, bytearray, BytesIO)):
-        files = {"video": ("video.mp4", video_bytes_or_fileid, "video/mp4")}
-        data = {"chat_id": chat_id}
-        if message_thread_id: data["message_thread_id"] = message_thread_id
-        if caption: data["caption"] = caption
-        return _api_post("sendVideo", data=data, files=files)
-    else:
-        payload = {"chat_id": chat_id, "video": video_bytes_or_fileid}
-        if message_thread_id: payload["message_thread_id"] = message_thread_id
-        if caption: payload["caption"] = caption
-        return _api_post("sendVideo", data=payload)
-
-def send_sticker(chat_id, sticker_fileid, message_thread_id=None):
-    payload = {"chat_id": chat_id, "sticker": sticker_fileid}
-    if message_thread_id: payload["message_thread_id"] = message_thread_id
-    return _api_post("sendSticker", data=payload)
-
-def get_file_info(file_id):
-    r = _api_post("getFile", data={"file_id": file_id})
-    if r and r.status_code == 200:
-        try:
-            j = r.json()
-            if j.get("ok"):
-                return j["result"]
-        except Exception:
-            pass
-    return None
-
-def download_file_from_telegram(file_id):
-    info = get_file_info(file_id)
-    if not info:
-        print(f"Không lấy được file info cho file_id={file_id}")
-        return None
-    file_path = info.get("file_path")
-    if not file_path:
-        print(f"File info không có file_path cho file_id={file_id}")
-        return None
-    file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-    try:
-        r = requests.get(file_url, timeout=20)
-        if r.status_code == 200:
-            return r.content
-        else:
-            print(f"Không tải được file từ Telegram: {r.status_code} {r.text}")
-    except Exception as e:
-        print(f"Exception khi tải file từ Telegram: {e}")
-    return None
-
-def get_db_password():
-    if not PROJECT_ID:
-        print("⚠️ PROJECT_ID không đặt. Secret Manager sẽ không được dùng.")
-        return None
-    try:
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{PROJECT_ID}/secrets/telegram-db-password/versions/latest"
-        response = client.access_secret_version(request={"name": name})
-        return response.payload.data.decode("UTF-8")
-    except Exception as e:
-        print(f"❌ Lỗi get_db_password: {e}")
-        return None
-
-def get_db_connection():
-    db_password = get_db_password()
-    if not db_password:
-        print("❌ Password DB không lấy được.")
-        return None
-    try:
-        conn = psycopg2.connect(
-            host=f"/cloudsql/{CLOUD_SQL_CONNECTION_NAME}" if CLOUD_SQL_CONNECTION_NAME else "127.0.0.1",
-            user=DB_USER,
-            password=db_password,
-            database=DB_NAME,
-            connect_timeout=5
-        )
-        return conn
-    except Exception as e:
-        print(f"❌ Lỗi kết nối DB: {e}")
-        return None
-
-def ensure_user_exists(telegram_user_id, username):
-    conn = get_db_connection()
-    if not conn:
-        return None
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO users (telegram_user_id, username)
-            VALUES (%s, %s)
-            ON CONFLICT (telegram_user_id) DO UPDATE SET username = EXCLUDED.username, updated_at = CURRENT_TIMESTAMP
-            RETURNING permission_level, allowed_topics;
-        """, (telegram_user_id, username))
-        res = cur.fetchone()
-        conn.commit()
-        cur.close()
-        return res
-    except Exception as e:
-        print("❌ ensure_user_exists error:", e)
-        try:
-            conn.rollback()
-        except:
-            pass
-    finally:
-        conn.close()
-    return None
-
-def get_user_permissions(telegram_user_id):
-    conn = get_db_connection()
-    if not conn:
-        return None
-    try:
-        cur = conn.cursor(cursor_factory=extras.RealDictCursor)
-        cur.execute("SELECT permission_level, allowed_topics FROM users WHERE telegram_user_id = %s;", (telegram_user_id,))
-        user_data = cur.fetchone()
-        cur.close()
-        return user_data
-    except Exception as e:
-        print("❌ get_user_permissions error:", e)
-    finally:
-        conn.close()
-    return None
-
-def update_user_permission_level(telegram_user_id, permission_level):
-    conn = get_db_connection()
-    if not conn:
-        return False
-    try:
-        cur = conn.cursor()
-        cur.execute("UPDATE users SET permission_level = %s, updated_at = CURRENT_TIMESTAMP WHERE telegram_user_id = %s;",
-                    (permission_level, telegram_user_id))
-        conn.commit()
-        cur.close()
-        return True
-    except Exception as e:
-        print("❌ update_user_permission_level error:", e)
-        try:
-            conn.rollback()
-        except:
-            pass
-    finally:
-        conn.close()
-    return False
-
-def update_user_allowed_topics(telegram_user_id, topic_ids, action):
-    conn = get_db_connection()
-    if not conn:
-        return False
-    try:
-        cur = conn.cursor()
-        if action == "add":
-            cur.execute("""
-                UPDATE users
-                SET allowed_topics = array_distinct(array_cat(COALESCE(allowed_topics, '{}'::TEXT[]), %s::TEXT[])), updated_at = CURRENT_TIMESTAMP
-                WHERE telegram_user_id = %s;
-            """, (topic_ids, telegram_user_id))
-        elif action == "remove":
-            cur.execute("""
-                UPDATE users
-                SET allowed_topics = array_remove_many(COALESCE(allowed_topics, '{}'::TEXT[]), %s::TEXT[]), updated_at = CURRENT_TIMESTAMP
-                WHERE telegram_user_id = %s;
-            """, (topic_ids, telegram_user_id))
-        conn.commit()
-        cur.close()
-        return True
-    except Exception as e:
-        print("❌ update_user_allowed_topics error:", e)
-    finally:
-        conn.close()
-    return False
-
-def _ensure_fonts():
-    import os, requests
-    reg = "/tmp/DejaVuSans.ttf"
-    bold = "/tmp/DejaVuSans-Bold.ttf"
-    try:
-        if not os.path.exists(reg):
-            url_reg = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf"
-            r = requests.get(url_reg, timeout=20)
-            with open(reg, "wb") as f:
-                f.write(r.content)
-        if not os.path.exists(bold):
-            url_bold = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans-Bold.ttf"
-            r = requests.get(url_bold, timeout=20)
-            with open(bold, "wb") as f:
-                f.write(r.content)
-    except Exception as e:
-        print("⚠️ Could not download fonts:", e)
-    return reg, bold
-
-def process_and_send_pdf(chat_id, thread_id, collected_data, filename="ch12.pdf"):
-    if not collected_data:
-        send_message(chat_id, "❌ Không có ảnh/nội dung để tạo PDF.", thread_id)
+    # list mapping
+    if cmd == "ch12from_list":
+        cfg = get_chat_cfg(chat_id)
+        fm = cfg.get("from_map", {})
+        if not fm:
+            bot.reply_to(message, "❗ Chưa có mapping nào trong chat này.")
+            return
+        lines = [f"{u} -> {lbl}" for u, lbl in fm.items()]
+        bot.reply_to(message, "Mappings (username -> label):\n" + "\n".join(lines))
         return
 
+    # check admin
     try:
-        reg_path, bold_path = _ensure_fonts()
+        admins = bot.get_chat_administrators(chat_id)
+        is_admin = any(a.user.id == user_id for a in admins)
+    except Exception as e:
+        print("Error getting admins:", e)
+        is_admin = False
 
-        pdf = FPDF()
-        pdf.add_page()
+    if not is_admin:
+        bot.reply_to(message, "❌ Lệnh này chỉ dành cho quản trị viên nhóm.")
+        return
 
-        try:
-            pdf.add_font("DejaVuSans", "", reg_path, uni=True)
-            pdf.add_font("DejaVuSans", "B", bold_path, uni=True)
-            font_name = "DejaVuSans"
-        except Exception:
-            font_name = "Arial"
+    if cmd == "ch12from_on":
+        if len(parts) < 3:
+            bot.reply_to(message, "⚠️ Cú pháp: /ch12from_on <username> <label>\nVí dụ: /ch12from_on Ch12_09 \"Cao Huy\"")
+            return
+        username = parts[1].lstrip('@')
+        label = parts[2].strip()
+        cfg = get_chat_cfg(chat_id)
+        fm = cfg.get("from_map", {})
+        fm[username] = label
+        cfg['from_map'] = fm
+        set_chat_cfg(chat_id, cfg)
+        bot.reply_to(message, f"✅ Đã đặt From cho @{username} là: {label}")
+        return
 
-        pdf.set_font(font_name, size=14)
-        pdf.cell(0, 10, txt="BÁO CÁO ẢNH TỔNG HỢP TỪ TELEGRAM", ln=True, align='C')
-        pdf.line(10, 20, 200, 20)
+    if cmd == "ch12from_off":
+        if len(parts) < 2:
+            bot.reply_to(message, "⚠️ Cú pháp: /ch12from_off <username>\nVí dụ: /ch12from_off Ch12_09")
+            return
+        username = parts[1].lstrip('@')
+        cfg = get_chat_cfg(chat_id)
+        fm = cfg.get("from_map", {})
+        if username in fm:
+            fm.pop(username)
+            cfg['from_map'] = fm
+            set_chat_cfg(chat_id, cfg)
+            bot.reply_to(message, f"✅ Đã xóa mapping cho @{username}")
+        else:
+            bot.reply_to(message, f"ℹ️ Không tìm thấy mapping cho @{username}")
+        return
 
-        for idx, item in enumerate(collected_data):
-            pdf.ln(6)
-            if font_name == "DejaVuSans":
-                pdf.set_font(font_name, style="B", size=12)
+# ---------- Admin commands: topics, compact, custom languages ----------
+@bot.message_handler(commands=['ch12topic_on', 'ch12topic_off', 'ch12compact_on', 'ch12compact_off', 'ch12language_on', 'ch12language_off'])
+def ch12_admin_misc(message):
+    """
+    /ch12topic_on  (reply to a message in the topic) -> enable bot responses in that topic
+    /ch12topic_off (reply to a message in the topic) -> disable bot responses in that topic
+    /ch12compact_on  -> turn compact mode ON for chat
+    /ch12compact_off -> turn compact mode OFF
+    /ch12language_on <lang>  -> add language button (e.g. en, ru, ar)
+    /ch12language_off <lang> -> remove language button
+    """
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    cmd = (message.text or "").split(maxsplit=1)[0].lstrip('/').lower()
+
+    # check admin
+    try:
+        admins = bot.get_chat_administrators(chat_id)
+        is_admin = any(a.user.id == user_id for a in admins)
+    except Exception as e:
+        print("Error get admins:", e)
+        is_admin = False
+
+    if not is_admin:
+        bot.reply_to(message, "❌ Lệnh này chỉ dành cho quản trị viên nhóm.")
+        return
+
+    cfg = get_chat_cfg(chat_id)
+    if 'topic_permissions' not in cfg:
+        cfg['topic_permissions'] = []
+    if 'custom_langs' not in cfg:
+        cfg['custom_langs'] = list(DEFAULT_LANGS)
+    if 'compact_mode' not in cfg:
+        cfg['compact_mode'] = 'on'
+
+    if cmd in ('ch12topic_on', 'ch12topic_off'):
+        if not message.reply_to_message:
+            bot.reply_to(message, "⚠️ Vui lòng reply vào 1 tin trong topic bạn muốn bật/tắt quyền.")
+            return
+        thread_id = message.reply_to_message.message_thread_id
+        if thread_id is None:
+            bot.reply_to(message, "⚠️ Không tìm thấy message_thread_id. Hãy chắc bạn đang reply vào 1 tin trong topic.")
+            return
+        if cmd == 'ch12topic_on':
+            if thread_id not in cfg['topic_permissions']:
+                cfg['topic_permissions'].append(thread_id)
+                set_chat_cfg(chat_id, cfg)
+                bot.reply_to(message, f"✅ Đã BẬT quyền xử lý trong topic `{thread_id}`.")
             else:
-                pdf.set_font(font_name, size=12)
-            pdf.multi_cell(0, 6, txt=f"Mục {idx+1}:", new_x="LMARGIN", new_y="NEXT")
+                bot.reply_to(message, f"ℹ️ Topic `{thread_id}` đã được bật rồi.")
+        else:
+            if thread_id in cfg['topic_permissions']:
+                cfg['topic_permissions'].remove(thread_id)
+                set_chat_cfg(chat_id, cfg)
+                bot.reply_to(message, f"✅ Đã TẮT quyền xử lý trong topic `{thread_id}`.")
+            else:
+                bot.reply_to(message, f"ℹ️ Topic `{thread_id}` hiện không được bật.")
+        return
 
-            caption = item.get('caption', '') or ''
-            pdf.set_font(font_name, size=10)
-            pdf.multi_cell(0, 5, txt=f"Nội dung: {caption}")
+    if cmd in ('ch12compact_on', 'ch12compact_off'):
+        cfg['compact_mode'] = 'on' if cmd == 'ch12compact_on' else 'off'
+        set_chat_cfg(chat_id, cfg)
+        state = "BẬT" if cfg['compact_mode'] == 'on' else "TẮT"
+        bot.reply_to(message, f"✅ Đã {state} chế độ gọn gàng (compact mode).")
+        return
 
-            if item.get('type') == 'image':
-                img_bytes = item.get('content')
-                if not img_bytes:
-                    pdf.multi_cell(0,5, txt="(Không thể tải ảnh)", new_x="LMARGIN", new_y="NEXT")
-                    continue
-                try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tf:
-                        tf.write(img_bytes)
-                        temp_name = tf.name
-                    pdf.image(temp_name, w=150)
-                except Exception as ie:
-                    pdf.multi_cell(0,5, txt=f"(Lỗi chèn ảnh: {ie})")
-                finally:
-                    try:
-                        if 'temp_name' in locals() and os.path.exists(temp_name):
-                            os.remove(temp_name)
-                    except Exception:
-                        pass
-            elif item.get('type') == 'text':
-                text_content = item.get('caption') or (item.get('content').decode('utf-8') if isinstance(item.get('content'), (bytes, bytearray)) else str(item.get('content')))
-                pdf.multi_cell(0,5, txt=text_content)
+    if cmd in ('ch12language_on', 'ch12language_off'):
+        parts = (message.text or "").split()
+        if len(parts) < 2:
+            bot.reply_to(message, "⚠️ Cú pháp: /ch12language_on <lang> hoặc /ch12language_off <lang>")
+            return
+        lang = parts[1].lower()
+        if lang == 'vi':
+            bot.reply_to(message, "ℹ️ Tiếng Việt luôn tự động có sẵn (không cần thêm nút).")
+            return
+        langs = cfg.get('custom_langs', list(DEFAULT_LANGS))
+        if cmd == 'ch12language_on':
+            if lang not in langs:
+                langs.append(lang)
+                cfg['custom_langs'] = langs
+                set_chat_cfg(chat_id, cfg)
+                bot.reply_to(message, f"✅ Đã thêm nút dịch `{lang.upper()}`.")
+            else:
+                bot.reply_to(message, f"ℹ️ `{lang.upper()}` đã tồn tại.")
+        else:
+            if lang in langs:
+                langs.remove(lang)
+                cfg['custom_langs'] = langs
+                set_chat_cfg(chat_id, cfg)
+                bot.reply_to(message, f"✅ Đã gỡ nút dịch `{lang.upper()}`.")
+            else:
+                bot.reply_to(message, f"ℹ️ `{lang.upper()}` không tồn tại.")
+        return
 
-        out = pdf.output(dest='S')
-        pdf_bytes = out.encode('latin-1') if isinstance(out, str) else out
-        send_document(chat_id, pdf_bytes, filename=filename, caption="Báo cáo ảnh tổng hợp đã sẵn sàng.", message_thread_id=thread_id)
-
-    except Exception as e:
-        print("❌ Lỗi process_and_send_pdf:", e)
-        traceback.print_exc()
-        send_message(chat_id, f"❌ Lỗi khi tạo báo cáo PDF: {e}", thread_id)
-
-def handle_update(update):
+# ---------- Main message handler ----------
+@bot.message_handler(content_types=["text", "photo"])
+def handle_message(message):
     try:
-        if "message" not in update:
-            print("Received update without 'message' field.")
+        # ignore messages from bots
+        if getattr(message.from_user, "is_bot", False):
             return
-        message = update["message"]
-        chat = message.get("chat", {})
-        chat_id = str(chat.get("id"))
-        thread_id = message.get("message_thread_id")
-        text = message.get("text") or message.get("caption") or ""
-        photo_list = message.get("photo")
-        caption = message.get("caption")
-        chat_type = chat.get("type")
-        from_user = message.get("from", {})
-        telegram_user_id = str(from_user.get("id")) if from_user.get("id") else None
-        username = from_user.get("username") or from_user.get("first_name") or ""
 
-        print(f"Processing message from {telegram_user_id} in chat {chat_id} thread {thread_id}: '{(text or '')[:50]}'")
+        chat_id = message.chat.id
+        cfg = get_chat_cfg(chat_id)
 
-        if telegram_user_id:
+        # Topic permission: if message is in topic and topic not allowed -> ignore
+        if getattr(message, "is_topic_message", False):
+            thread_id = getattr(message, "message_thread_id", None)
+            allowed = cfg.get('topic_permissions', [])
+            if thread_id is not None and thread_id not in allowed:
+                return
+
+        compact = cfg.get("compact_mode", "on")
+
+        # sender display
+        user = message.from_user
+        sender_display = f"@{user.username}" if getattr(user, "username", None) else (user.full_name if getattr(user, "full_name", None) else (user.first_name or "User"))
+
+        # extract text
+        if message.content_type == "photo":
+            text = (message.caption or "").strip()
+            if not text:
+                # optional OCR (best-effort)
+                try:
+                    file_id = message.photo[-1].file_id
+                    file_info = bot.get_file(file_id)
+                    file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"
+                    ocr_url = f"https://api.ocr.space/parse/imageurl?apikey=helloworld&url={file_url}"
+                    r = requests.get(ocr_url, timeout=8).json()
+                    parsed = r.get("ParsedResults")
+                    if parsed and parsed[0].get("ParsedText"):
+                        text = parsed[0]["ParsedText"].strip()
+                except Exception as e:
+                    print("OCR error:", e)
+        else:
+            text = (message.text or "").strip()
+
+        if not text:
+            return
+
+        # auto translate to Vietnamese
+        translated_vi, source_lang = translate_text_with_source(text, "vi")
+
+        # determine From label ONLY from per-username mapping (explicit)
+        from_map = cfg.get('from_map', {})
+        sender_username = getattr(message.from_user, "username", "") or ""
+        short_sender_username = sender_username.lstrip('@')
+        from_label = ""
+        if short_sender_username and short_sender_username in from_map:
+            from_label = from_map[short_sender_username]
+
+        # Build header + original + blank + vi_line
+        header_line = f"<b>{sender_display} - From {from_label}</b>" if from_label else f"<b>{sender_display}</b>"
+        original_line = text
+        vi_line = f"{LANGUAGE_FLAGS.get('vi', ' 🇻🇳')} {translated_vi}"
+        final_text = f"{header_line}\n{original_line}\n\n{vi_line}"
+
+        markup = create_markup(chat_id)
+
+        sent_msg = None
+        if compact == "on":
+            sent_msg = bot.send_message(chat_id, final_text, parse_mode="HTML", reply_markup=markup,
+                                        message_thread_id=message.message_thread_id if getattr(message, "is_topic_message", False) else None)
+            # try delete original
             try:
-                ensure_user_exists(telegram_user_id, username)
+                bot.delete_message(chat_id, message.message_id)
             except Exception as e:
-                print("ensure_user_exists error:", e)
-
-        current_state = PDF_CONVERSATION_STATE.get(chat_id, {'state': 0, 'data': []})
-
-        if current_state['state'] == 1:
-            if text and text.strip().lower().startswith("/done"):
-                parts = text.split(maxsplit=1)
-                filename_to_use = "ch12.pdf"
-                if len(parts) > 1:
-                    userfn = parts[1].strip()
-                    if userfn and not userfn.lower().endswith(".pdf"):
-                        userfn += ".pdf"
-                    if userfn:
-                        filename_to_use = userfn
-                send_message(chat_id, f"✅ Đã nhận lệnh /done. Tên file: {filename_to_use}. Đang tạo PDF...", thread_id)
-                data_to_process = current_state.get('data', [])
-                PDF_CONVERSATION_STATE[chat_id] = {'state': 0, 'data': []}
-                threading.Thread(target=process_and_send_pdf, args=(chat_id, thread_id, data_to_process, filename_to_use)).start()
-                return
-
-            if photo_list:
-                file_id = photo_list[-1].get("file_id")
-                image_bytes = download_file_from_telegram(file_id)
-                processed_caption = caption or f"Ảnh {len(current_state.get('data', [])) + 1}: Không chú thích"
-                if image_bytes:
-                    current_state['data'].append({
-                        'type': 'image',
-                        'content': image_bytes,
-                        'caption': processed_caption,
-                        'mime_type': 'image/jpeg'
-                    })
-                    PDF_CONVERSATION_STATE[chat_id] = current_state
-                    send_message(chat_id, f"Đã nhận 1 ảnh. Tổng: {len(current_state['data'])} mục. Gửi ảnh/nội dung tiếp theo hoặc /done [ten_file_pdf].", thread_id)
+                if "message can't be deleted" in str(e):
+                    bot.send_message(chat_id, "⚠️ Bot không thể xóa tin nhắn. Vui lòng cấp quyền 'Xóa tin nhắn' cho bot.")
                 else:
-                    send_message(chat_id, "❌ Lỗi: không tải được ảnh từ Telegram.", thread_id)
-                return
+                    print("Delete error:", e)
+        else:
+            sent_msg = bot.reply_to(message, final_text, parse_mode="HTML", reply_markup=markup,
+                                    message_thread_id=message.message_thread_id if getattr(message, "is_topic_message", False) else None)
 
-            if text and not text.strip().startswith("/"):
-                current_state['data'].append({
-                    'type': 'text',
-                    'content': text,
-                    'caption': text,
-                    'mime_type': 'text/plain'
-                })
-                PDF_CONVERSATION_STATE[chat_id] = current_state
-                send_message(chat_id, "Mr. HuyCon đang chờ ảnh, nội dung văn bản hoặc lệnh /done [ten_file_pdf].", thread_id)
-                return
-
-            send_message(chat_id, "Mr. HuyCon đang chờ ảnh, nội dung văn bản hoặc lệnh /done [ten_file_pdf].", thread_id)
-            return
-
-        if text and (text.strip().lower() == "/pdf" or text.strip().lower() == "/start_pdf"):
-            if current_state.get('data'):
-                send_message(chat_id, "⚠️ Đã phát hiện dữ liệu cũ chưa được xử lý. Dữ liệu này sẽ bị xóa. Bắt đầu phiên mới.", thread_id)
-            PDF_CONVERSATION_STATE[chat_id] = {'state': 1, 'data': []}
-            send_message(chat_id, "📄 Bắt đầu tạo file PDF. Gửi lần lượt ảnh (kèm chú thích) hoặc tin nhắn văn bản. Nhắn /done [Tên File Bạn Muốn] khi hoàn tất.", thread_id)
-            return
-
-        source_key = (chat_id, thread_id)
-        if thread_id and source_key in TOPIC_MAP:
-            mapping = TOPIC_MAP[source_key]
-            target_chat = mapping.get("target_group")
-            target_thread = mapping.get("target_topic")
-            forward_caption = f"- User: @{username or 'ẩn danh'}"
-            if text:
-                send_message(target_chat, forward_caption + ("\n\n" + text if text else ""), target_thread)
-                return
-            if photo_list:
-                file_id = photo_list[-1].get("file_id")
-                send_photo(target_chat, file_id, caption=forward_caption + ("\n\n" + (caption or "")), message_thread_id=target_thread)
-                return
-            return
-
-        if text:
-            clean = text.lower()
-            for kw, resp in AUTO_REPLY.items():
-                if kw.lower() in clean:
-                    send_message(chat_id, resp, thread_id)
-                    return
-
-        if text and text.strip().lower() == "/start":
-            send_message(chat_id, "Xin chào! Tôi là bot quản lý. Hãy dùng lệnh /mypermission để kiểm tra quyền của bạn.", thread_id)
-            return
+        # persist mapping for callback
+        if sent_msg:
+            key = f"{chat_id}:{sent_msg.message_id}"
+            MESSAGE_DATA[key] = f"{sender_display}|{text}|{source_lang}"
+            save_message_data()
 
     except Exception as e:
-        print("❌ Fatal error in handle_update:", e)
+        print("Error in handle_message:", e)
+        traceback.print_exc()
+
+# ---------- Callback handler ----------
+@bot.callback_query_handler(func=lambda call: True)
+def handle_translate_callback(call):
+    try:
+        lang = call.data.lower()
+        chat_id = call.message.chat.id
+        msg_id = call.message.message_id
+        key = f"{chat_id}:{msg_id}"
+
+        data_storage = MESSAGE_DATA.get(key)
+        if not data_storage:
+            bot.answer_callback_query(call.id, "❌ Không tìm thấy dữ liệu gốc (tin đã bị sửa hoặc bot khởi động lại).")
+            return
+
+        parts = data_storage.split("|", 2)
+        if len(parts) < 2:
+            bot.answer_callback_query(call.id, "❌ Dữ liệu gốc bị lỗi.")
+            return
+        original_text = parts[1]
+
+        # translate
+        translated, _ = translate_text_with_source(original_text, lang)
+        flag = LANGUAGE_FLAGS.get(lang, " ❓")
+        new_translation_line = f"{flag} {lang.upper()} {translated}"
+
+        # parse visible message: header, original, blank, vi_line, extras...
+        current_text = call.message.text or ""
+        lines = current_text.splitlines()
+        header_line = lines[0] if len(lines) > 0 else ""
+        original_line = lines[1] if len(lines) > 1 else original_text
+
+        # find vi_line
+        vi_line = None
+        vi_index = None
+        for i in range(2, len(lines)):
+            if lines[i].strip() == "":
+                continue
+            if lines[i].startswith(LANGUAGE_FLAGS.get('vi', ' 🇻🇳')) or lines[i].startswith("🇻🇳"):
+                vi_line = lines[i]
+                vi_index = i
+                break
+        if vi_line is None:
+            vi_line = f"{LANGUAGE_FLAGS.get('vi', ' 🇻🇳')} {translate_text_with_source(original_text, 'vi')[0]}"
+            vi_index = 3 if len(lines) >= 3 else len(lines)
+
+        extra_lines = []
+        if vi_index is not None and vi_index + 1 < len(lines):
+            extra_lines = [l for l in lines[vi_index + 1:] if l.strip() != ""]
+
+        # replace or append new translation
+        target_prefix = f"{LANGUAGE_FLAGS.get(lang, ' ❓')}"
+        replaced = False
+        new_extra = []
+        for l in extra_lines:
+            if l.startswith(target_prefix):
+                new_extra.append(new_translation_line)
+                replaced = True
+            else:
+                new_extra.append(l)
+        if not replaced:
+            new_extra.append(new_translation_line)
+
+        final_visible = "\n".join([header_line, original_line, "", vi_line] + new_extra)
+        bot.edit_message_text(final_visible, chat_id=chat_id, message_id=msg_id,
+                              reply_markup=call.message.reply_markup, parse_mode="HTML")
+        bot.answer_callback_query(call.id, f"Đã dịch sang {lang.upper()}!")
+
+        # persist mapping unchanged
+        MESSAGE_DATA[key] = data_storage
+        save_message_data()
+
+    except Exception as e:
+        print("Error in callback:", e)
         traceback.print_exc()
         try:
-            if ADMIN_USER_ID:
-                send_message(ADMIN_USER_ID, f"Bot gặp lỗi: {e}")
+            bot.answer_callback_query(call.id, f"Lỗi: {e}")
         except:
             pass
 
-@app.route("/", methods=["GET"])
-def index():
-    return "Bot service is running.", 200
-
-@app.route("/db-check", methods=["GET"])
-def db_check():
-    try:
-        conn = get_db_connection()
-        if conn:
-            conn.close()
-            return "Database connection OK.", 200
-        return "Database connection failed.", 500
-    except Exception as e:
-        return f"Exception: {e}", 500
-
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+# ---------- Webhook endpoint ----------
+@app.route("/", methods=["POST"])
 def webhook():
-    if not BOT_TOKEN:
-        return "Token missing", 400
-    try:
-        update = request.get_json()
-        if update:
-            threading.Thread(target=handle_update, args=(update,)).start()
-            return "OK", 200
-        return "No update", 200
-    except Exception as e:
-        print("Webhook error:", e)
-        return "Internal error", 500
+    if request.headers.get("content-type") == "application/json":
+        try:
+            update = types.Update.de_json(request.data.decode("utf-8"))
+            bot.process_new_updates([update])
+        except Exception as e:
+            print("Webhook processing error:", e)
+            traceback.print_exc()
+        return "OK", 200
+    return "OK", 200
 
+# ---------- Run ----------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=True)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+
