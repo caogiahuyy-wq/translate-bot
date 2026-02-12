@@ -423,16 +423,11 @@ def handle_translate_callback(call):
             pass
 
 # ---------- Webhook endpoint ----------
-@app.route("/", methods=["POST"])
+@app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     if request.headers.get("content-type") == "application/json":
-        try:
-            update = types.Update.de_json(request.data.decode("utf-8"))
-            bot.process_new_updates([update])
-        except Exception as e:
-            print("Webhook processing error:", e)
-            traceback.print_exc()
-        return "OK", 200
+        update = types.Update.de_json(request.data.decode("utf-8"))
+        bot.process_new_updates([update])
     return "OK", 200
 
 # ---------- Run ----------
