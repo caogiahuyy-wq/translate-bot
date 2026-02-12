@@ -25,9 +25,9 @@ CHAT_CONFIG_FILE = "chat_config.json"    # key: str(chat_id) -> { "from_map": {.
 markup = types.InlineKeyboardMarkup(row_width=7)
 
 markup.add(
-    btn_en, btn_ru, btn_ar,
-    btn_vi, btn_ja, btn_th, btn_zh
+    btn_en, btn_ru, btn_ar, btn_vi, btn_ja, btn_th, btn_zh
 )
+
 DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th", "zh"]
 
 # ---------- Helpers to load/save JSON ----------
