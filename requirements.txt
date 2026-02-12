@@ -1,7 +1,5 @@
-flask
+Flask
 requests
-google-cloud-secret-manager
-psycopg2-binary
-fpdf
-pillow
-gunicorn
+googletrans==4.0.0-rc1
+
+
