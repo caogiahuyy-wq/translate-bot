@@ -24,13 +24,13 @@ CHAT_CONFIG_FILE = "chat_config.json"    # key: str(chat_id) -> { "from_map": {.
 # ---------- Language flags and defaults ----------
 markup = types.InlineKeyboardMarkup(row_width=7)
 
-btn_en = types.InlineKeyboardButton("GB", callback_data="lang_en")
-btn_ru = types.InlineKeyboardButton("RU", callback_data="lang_ru")
-btn_ar = types.InlineKeyboardButton("SA", callback_data="lang_ar")
-btn_vi = types.InlineKeyboardButton("VN", callback_data="lang_vi")
-btn_ja = types.InlineKeyboardButton("JP", callback_data="lang_ja")
-btn_th = types.InlineKeyboardButton("TH", callback_data="lang_th")
-btn_zh = types.InlineKeyboardButton("CN", callback_data="lang_zh")
+btn_en = types.InlineKeyboardButton("🇬🇧", callback_data="lang_en")
+btn_ru = types.InlineKeyboardButton("🇷🇺", callback_data="lang_ru")
+btn_ar = types.InlineKeyboardButton("🇸🇦", callback_data="lang_ar")
+btn_vi = types.InlineKeyboardButton("🇻🇳", callback_data="lang_vi")
+btn_ja = types.InlineKeyboardButton("🇯🇵", callback_data="lang_ja")
+btn_th = types.InlineKeyboardButton("🇹🇭", callback_data="lang_th")
+btn_zh = types.InlineKeyboardButton("🇨🇳", callback_data="lang_zh")
 
 markup.add(
     btn_en, btn_ru, btn_ar,
