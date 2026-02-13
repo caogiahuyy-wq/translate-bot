@@ -31,7 +31,8 @@ btn_th = types.InlineKeyboardButton("🇹🇭", callback_data="lang_th")
 btn_zh = types.InlineKeyboardButton("🇨🇳", callback_data="lang_zh")
 markup = types.InlineKeyboardMarkup()
 
-types.InlineKeyboardButton("🌍 Language", callback_data="open_lang")
+markup.row(btn_en, btn_ru, btn_ar)
+markup.row(btn_ja, btn_th, btn_zh)
 
 DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th", "zh"]
 
@@ -287,7 +288,7 @@ def handle_message(message):
 
         # sender display
         user = message.from_user
-        sender_display = f"🥰@{user.username}" if getattr(user, "username", None) else (user.full_name if getattr(user, "full_name", None) else (user.first_name or "User"))
+        sender_display = f"👤@{user.username}" if getattr(user, "username", None) else (user.full_name if getattr(user, "full_name", None) else (user.first_name or "User"))
 
         # extract text
         if message.content_type == "photo":
