@@ -31,7 +31,7 @@ btn_th = types.InlineKeyboardButton("🇹🇭", callback_data="lang_th")
 btn_zh = types.InlineKeyboardButton("🇨🇳", callback_data="lang_zh")
 markup = types.InlineKeyboardMarkup()
 
-markup.row(btn_en, btn_ru, btn_vi, btn_ja, btn_th, btn_zh, btn_ar)
+types.InlineKeyboardButton("🌍 Language", callback_data="open_lang")
 
 DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th", "zh"]
 
