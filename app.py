@@ -14,6 +14,7 @@ LANGUAGE_FLAGS = {
     "vi": "🇻🇳",
     "ja": "🇯🇵",
     "th": "🇹🇭",
+    "id": "🇮🇩",
     "zh": "🇨🇳"
 }
 
@@ -28,13 +29,14 @@ btn_ar = types.InlineKeyboardButton("🇸🇦", callback_data="lang_ar")
 btn_vi = types.InlineKeyboardButton("🇻🇳", callback_data="lang_vi")
 btn_ja = types.InlineKeyboardButton("🇯🇵", callback_data="lang_ja")
 btn_th = types.InlineKeyboardButton("🇹🇭", callback_data="lang_th")
+btn_id = types.InlineKeyboardButton("ID", callback_data="lang_id")
 btn_zh = types.InlineKeyboardButton("🇨🇳", callback_data="lang_zh")
 markup = types.InlineKeyboardMarkup()
 
 markup.row(btn_en, btn_ru, btn_ar)
-markup.row(btn_ja, btn_th, btn_zh)
+markup.row(btn_ja, btn_th, btn_zh, btn_id)
 
-DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th", "zh"]
+DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th", "zh", "id"]
 
 # ---------- Helpers to load/save JSON ----------
 def load_json_file(path, default):
