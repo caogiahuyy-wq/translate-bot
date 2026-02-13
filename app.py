@@ -29,9 +29,9 @@ btn_vi = types.InlineKeyboardButton("🇻🇳", callback_data="lang_vi")
 btn_ja = types.InlineKeyboardButton("🇯🇵", callback_data="lang_ja")
 btn_th = types.InlineKeyboardButton("🇹🇭", callback_data="lang_th")
 btn_zh = types.InlineKeyboardButton("🇨🇳", callback_data="lang_zh")
-markup = types.InlineKeyboardMarkup(row_width=7)
+markup = types.InlineKeyboardMarkup()
 
-markup.add(
+markup.row(
     btn_en, btn_ru, btn_ar, btn_vi, btn_ja, btn_th, btn_zh
 )
 
