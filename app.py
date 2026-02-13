@@ -101,7 +101,7 @@ def create_markup(chat_id):
     for l in langs:
         flag = LANGUAGE_FLAGS.get(l.lower(), "❓")
         buttons.append(types.InlineKeyboardButton(f"{flag}", callback_data=l.lower()))
-    markup.add(*buttons)
+    markup.row(*buttons)
     return markup
 
 # ---------- Admin commands: per-username From mapping ----------
