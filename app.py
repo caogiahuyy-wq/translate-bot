@@ -26,7 +26,6 @@ CHAT_CONFIG_FILE = "chat_config.json"    # key: str(chat_id) -> { "from_map": {.
 btn_en = types.InlineKeyboardButton("🇬🇧", callback_data="lang_en")
 btn_ru = types.InlineKeyboardButton("🇷🇺", callback_data="lang_ru")
 btn_ar = types.InlineKeyboardButton("🇸🇦", callback_data="lang_ar")
-btn_vi = types.InlineKeyboardButton("🇻🇳", callback_data="lang_vi")
 btn_ja = types.InlineKeyboardButton("🇯🇵", callback_data="lang_ja")
 btn_th = types.InlineKeyboardButton("🇹🇭", callback_data="lang_th")
 btn_id = types.InlineKeyboardButton("ID", callback_data="lang_id")
@@ -37,7 +36,7 @@ markup = types.InlineKeyboardMarkup()
 markup.row(btn_en, btn_ru, btn_ar)
 markup.row(btn_ja, btn_th, btn_fr, btn_zh, btn_id)
 
-DEFAULT_LANGS = ["en", "ru", "ar", "vi", "ja", "th", "fr", "zh", "id"]
+DEFAULT_LANGS = ["en", "ru", "ar", "ja", "th", "fr", "zh", "id"]
 
 # ---------- Helpers to load/save JSON ----------
 def load_json_file(path, default):
