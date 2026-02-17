@@ -32,7 +32,7 @@ btn_ja = types.InlineKeyboardButton("🇯🇵", callback_data="lang_ja")
 btn_th = types.InlineKeyboardButton("🇹🇭", callback_data="lang_th")
 btn_id = types.InlineKeyboardButton("ID", callback_data="lang_id")
 btn_zh = types.InlineKeyboardButton("🇨🇳", callback_data="lang_zh")
-btn_fr = types.InlineKeyboardButton("🇫🇷", callback_data="lang_fr")
+btn_fr = types.InlineKeyboardButton("FR", callback_data="lang_fr")
 markup = types.InlineKeyboardMarkup()
 
 markup.row(btn_en, btn_ru, btn_ar)
